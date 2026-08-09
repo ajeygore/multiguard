@@ -1,0 +1,5 @@
+8001  # viewer port for this wiki
+
+Change this if you run more than one wiki on this machine, so each has its own
+port and the URL identifies which wiki you are looking at. Overridden by
+--port or WIKI_PORT.
