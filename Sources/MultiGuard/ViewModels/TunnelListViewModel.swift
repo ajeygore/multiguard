@@ -22,7 +22,20 @@ class TunnelListViewModel: ObservableObject {
         tunnels = await TunnelStore.shared.load()
         selectedTunnelIDs.removeAll()
         recomputeConflicts()
+        await adoptRunningTunnels()
         startDetailsRefreshTimer()
+    }
+
+    /// Mark tunnels that are already up on the system (left over from a previous session) as connected.
+    private func adoptRunningTunnels() async {
+        let running = await manager.runningInterfaces(for: tunnels)
+        for (id, interface) in running {
+            guard let index = tunnels.firstIndex(where: { $0.id == id }) else { continue }
+            tunnels[index].status = .connected(interface: interface)
+            if let details = try? await TunnelDetailsFetcher.fetch(for: tunnels[index], interface: interface) {
+                tunnels[index].details = details
+            }
+        }
     }
 
     func importConfig(from url: URL) {
@@ -195,7 +208,7 @@ class TunnelListViewModel: ObservableObject {
         for index in tunnels.indices {
             if case .connected(let interface) = tunnels[index].status {
                 if let details = try? await TunnelDetailsFetcher.fetch(for: tunnels[index], interface: interface) {
-                    tunnels[index].details = details
+                    tunnels[index].details = details.withRates(since: tunnels[index].details)
                 }
             }
         }

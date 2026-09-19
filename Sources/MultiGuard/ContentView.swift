@@ -5,6 +5,7 @@ struct ContentView: View {
     @StateObject private var viewModel = AppState.shared.viewModel
     @StateObject private var appearance = AppearanceController.shared
     @State private var showingImporter = false
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -54,6 +55,9 @@ struct ContentView: View {
             }
         }
         .background(Theme.windowBackground)
+        .onAppear {
+            AppDelegate.openWindow = openWindow
+        }
         .fileImporter(
             isPresented: $showingImporter,
             allowedContentTypes: [UTType.item],

@@ -9,6 +9,7 @@ struct TunnelCard: View {
     let onSelectionChange: (Bool) -> Void
     @State private var bindText: String = ""
     @State private var isHovering = false
+    @State private var showingInfo = false
 
     var body: some View {
         HStack(spacing: 16) {
@@ -36,20 +37,13 @@ struct TunnelCard: View {
                         .foregroundStyle(.secondary)
                 }
 
-                if let details = tunnel.details {
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 12) {
-                            DetailItem(icon: "arrow.down.circle", label: "RX", value: details.formattedRX)
-                            DetailItem(icon: "arrow.up.circle", label: "TX", value: details.formattedTX)
-                            DetailItem(icon: "network", label: "IP", value: details.localIP)
-                        }
+                routesLine
 
-                        if !details.routes.isEmpty {
-                            Text("Routes: \(details.routes.joined(separator: ", "))")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
+                if let details = tunnel.details {
+                    HStack(spacing: 12) {
+                        DetailItem(icon: "arrow.down.circle", label: "RX", value: details.formattedRX)
+                        DetailItem(icon: "arrow.up.circle", label: "TX", value: details.formattedTX)
+                        DetailItem(icon: "network", label: "IP", value: details.localIP)
                     }
                     .padding(.top, 2)
                 }
@@ -138,6 +132,37 @@ struct TunnelCard: View {
                 isHovering = hovering
             }
         }
+    }
+
+    /// Compact summary of what the tunnel routes (from AllowedIPs), with an (i) button for full details.
+    var routesLine: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "arrow.triangle.branch")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text("Routes: ")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+            + Text(tunnel.config.routeSummary)
+                .font(.caption2.weight(.medium))
+                .foregroundColor(tunnel.config.routesAllTraffic ? Theme.warning : .primary)
+
+            Button {
+                showingInfo.toggle()
+            } label: {
+                Image(systemName: "info.circle")
+                    .font(.caption)
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(Theme.accent)
+            .help("Details and statistics")
+            .popover(isPresented: $showingInfo, arrowEdge: .bottom) {
+                TunnelInfoView(tunnel: tunnel)
+            }
+        }
+        .lineLimit(1)
+        .truncationMode(.tail)
+        .help(tunnel.config.allowedIPs.joined(separator: ", "))
     }
 
     var statusIcon: some View {

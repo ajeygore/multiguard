@@ -12,4 +12,8 @@ protocol MultiGuardHelperProtocol {
 
     /// Tear down a WireGuard tunnel using the config at `configPath`.
     func disconnect(withConfigPath configPath: String, reply: @escaping (Error?) -> Void)
+
+    /// Return the raw output of `wg show <interface> dump` for a live tunnel.
+    /// The private key line is stripped before it crosses the XPC boundary.
+    func stats(forInterface interface: String, reply: @escaping (String?, Error?) -> Void)
 }

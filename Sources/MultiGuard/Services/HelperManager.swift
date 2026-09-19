@@ -113,6 +113,28 @@ final class HelperManager: ObservableObject {
         }
     }
 
+    /// Fetch `wg show <interface> dump` through the helper. Unlike connect/disconnect this never
+    /// tries to install the helper: it is polled every few seconds, so it must be cheap when the
+    /// helper is unavailable (unsigned development builds).
+    func tunnelStats(interface: String) async throws -> String {
+        guard isInstalled else { throw HelperManagerError.helperNotFound }
+        let connection = try await connect()
+        guard let proxy = connection.remoteObjectProxy as? MultiGuardHelperProtocol else {
+            throw HelperManagerError.connectionFailed
+        }
+        return try await withCheckedThrowingContinuation { continuation in
+            proxy.stats(forInterface: interface) { dump, error in
+                if let error = error {
+                    continuation.resume(throwing: error)
+                } else if let dump = dump {
+                    continuation.resume(returning: dump)
+                } else {
+                    continuation.resume(throwing: HelperManagerError.connectionFailed)
+                }
+            }
+        }
+    }
+
     private func ensureHelper() async throws {
         if !isInstalled {
             try await install()

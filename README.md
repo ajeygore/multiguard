@@ -78,8 +78,10 @@ For distribution, notarize the `.app` with `xcrun notarytool`.
 1. Click **Import** and select one or more WireGuard `.conf` files.
 2. MultiGuard copies each config locally and immediately highlights any **address/routing conflicts**.
 3. Select tunnels with the checkboxes and click **Connect** / **Disconnect**, or toggle a single tunnel from its card.
-4. Once connected, each card shows live stats: **RX/TX bytes**, **local IP**, and **routes**.
-5. Use the lock-shield menu-bar icon for quick connect/disconnect without opening the main window.
+4. Each card lists the **routes** (AllowedIPs) the tunnel carries. Click the **(i)** button for full details — interface address, DNS, peers, endpoints, keys — and, once connected, live statistics (RX/TX totals and throughput, installed routes, last handshake).
+5. Use the lock-shield menu-bar icon for quick connect/disconnect without opening the main window. Closing the main window keeps MultiGuard running in the menu bar only (no Dock or Cmd-Tab entry); "Open MultiGuard…" brings the single window back.
+
+> **Statistics without the helper:** on unsigned development builds `wg show` can't read the root-owned tunnel socket, so MultiGuard falls back to interface counters from `netstat`. Per-peer transfer and handshake times need the signed privileged helper.
 
 ---
 

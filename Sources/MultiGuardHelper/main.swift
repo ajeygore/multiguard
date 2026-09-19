@@ -50,6 +50,34 @@ class MultiGuardHelper: NSObject, MultiGuardHelperProtocol, NSXPCListenerDelegat
         }
     }
 
+    func stats(forInterface interface: String, reply: @escaping (String?, Error?) -> Void) {
+        // Only accept plausible interface names so this can't be used to pass arbitrary arguments to wg.
+        guard interface.range(of: "^[A-Za-z0-9_.-]{1,32}$", options: .regularExpression) != nil else {
+            reply(nil, HelperError.commandFailed(1, "Invalid interface name"))
+            return
+        }
+        do {
+            let wg = try findExecutable("wg")
+            let dump = try runProcess(executable: wg, arguments: ["show", interface, "dump"])
+            reply(stripPrivateKey(fromDump: dump), nil)
+        } catch {
+            reply(nil, error)
+        }
+    }
+
+    /// The first line of `wg show <iface> dump` is `<private-key>\t<public-key>\t<port>\t<fwmark>`.
+    /// Replace the private key with "(none)" so it never leaves the helper.
+    private func stripPrivateKey(fromDump dump: String) -> String {
+        var lines = dump.components(separatedBy: "\n")
+        guard let first = lines.first, !first.isEmpty else { return dump }
+        var fields = first.components(separatedBy: "\t")
+        if !fields.isEmpty {
+            fields[0] = "(none)"
+            lines[0] = fields.joined(separator: "\t")
+        }
+        return lines.joined(separator: "\n")
+    }
+
     private func runWGQuick(action: String, configPath: String) throws -> String {
         let wgQuick = try findExecutable("wg-quick")
         let bash = try findExecutable("bash")

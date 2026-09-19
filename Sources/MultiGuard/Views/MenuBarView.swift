@@ -37,8 +37,16 @@ struct MenuBarView: View {
                                 Image(systemName: Theme.Status.icon(for: tunnel.status))
                                     .foregroundStyle(Theme.Status.color(for: tunnel.status))
                                     .frame(width: 18)
-                                Text(tunnel.name)
-                                    .lineLimit(1)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(tunnel.name)
+                                        .lineLimit(1)
+                                    Text(tunnel.config.routeSummary)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
+                                }
+                                .help(tunnel.config.allowedIPs.joined(separator: ", "))
                                 Spacer()
                                 Text(menuStatusText(tunnel.status))
                                     .font(.caption)
@@ -61,8 +69,7 @@ struct MenuBarView: View {
 
             HStack {
                 Button("Open MultiGuard…") {
-                    openWindow(id: "main")
-                    NSApp.activate(ignoringOtherApps: true)
+                    AppDelegate.showMainWindow(openWindow: openWindow)
                 }
                 Spacer()
                 Button("Quit") {
