@@ -17,3 +17,18 @@ This is an append-only log of modifications, updates, and indexing runs performe
 - Created project pages: `multiguard-overview.md`, `multiguard-architecture.md`, `multiguard-setup.md`, `multiguard-decisions.md`, `wireguard-official-architecture.md`.
 - Updated `wiki/index.md` to catalog the new Project section.
 - Prepared to lint, commit, and push.
+
+## [2026-10-02] fix | Connect hang, localized Bash check, working Developer ID helper.
+- App: skip helper on ad-hoc builds, XPC ping timeout + error handler, case-insensitive Bash version check.
+- Helper: trust clients of its own signing team, case-insensitive Bash check, Homebrew PATH for spawned processes; launchd plist uses `BundleProgram`.
+- `build-app.sh`: resolve the Developer ID identity by Team ID.
+- Updated `multiguard-architecture.md`, `multiguard-setup.md`, `multiguard-decisions.md`; created `multiguard-troubleshooting.md`.
+
+## [2026-10-05] fix | Disconnect hung forever behind a stuck stats call.
+- Helper: requests run concurrently; child processes killed after a timeout; output collected without waiting for EOF; NSError replies keep their message.
+- App: every XPC call has an error handler and timeout; osascript fallback only when the helper is unavailable; dead tunnels shown as failed; disconnect of an already-dead tunnel succeeds.
+- Updated `multiguard-architecture.md`, `multiguard-decisions.md`, `multiguard-setup.md`, `multiguard-troubleshooting.md`.
+
+## [2026-10-28] fix | Helper busy-looped on EOF and burned 30–40 % CPU.
+- `readabilityHandler` now removes itself on empty data; measured 4.2 s → 0.03 s CPU for 20 short commands.
+- Updated `multiguard-architecture.md`, `multiguard-troubleshooting.md`.

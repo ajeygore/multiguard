@@ -48,9 +48,10 @@ struct BashPaths {
     }
 
     private static func parseMajorVersion(_ output: String) -> Int? {
-        // Typical output: "GNU bash, version 5.2.15(1)-release ..."
+        // Typical output: "GNU bash, version 5.2.15(1)-release ..." — localized, e.g. German
+        // prints "GNU bash, Version 5.3.20(1)-release", so match case-insensitively.
         let prefix = "GNU bash, version "
-        guard let range = output.range(of: prefix) else { return nil }
+        guard let range = output.range(of: prefix, options: .caseInsensitive) else { return nil }
         let remainder = output[range.upperBound...]
         guard let dotIndex = remainder.firstIndex(of: ".") else { return nil }
         return Int(remainder[..<dotIndex])

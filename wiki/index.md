@@ -19,6 +19,7 @@ Welcome to the LLMWiki catalog. This catalog is parsed by the LLMWiki engine to 
 - [MultiGuard Architecture](multiguard-architecture.md) — Internal structure of the app and its privileged helper.
 - [MultiGuard Build & Run](multiguard-setup.md) — How to build, run, and sign MultiGuard.
 - [MultiGuard Design Decisions](multiguard-decisions.md) — Key technical choices made while building MultiGuard.
+- [MultiGuard Troubleshooting](multiguard-troubleshooting.md) — Diagnosing a Connect click that does nothing and helper problems.
 - [WireGuard Official macOS Architecture](wireguard-official-architecture.md) — Reference summary of the official WireGuard macOS client.
 
 ## Custom Skills

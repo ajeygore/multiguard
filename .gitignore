@@ -6,3 +6,6 @@ xcuserdata/
 *.xcodeproj/xcuserdata/
 *.xcodeproj/project.xcworkspace/xcuserdata/
 /tmp/
+
+# Personal helper scripts (e.g. signed build with own Team ID)
+*.local.sh

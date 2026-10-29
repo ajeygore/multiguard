@@ -7,7 +7,7 @@ BUNDLE_DIR="$APP_NAME.app"
 TEAM_ID="${DEVELOPER_ID:-}"
 
 if [ -z "$TEAM_ID" ]; then
-    echo "WARNING: DEVELOPER_ID is not set. The app will be ad-hoc signed and SMJobBless will not work."
+    echo "WARNING: DEVELOPER_ID is not set. The app will be ad-hoc signed and the privileged helper will not be used."
     echo "To enable the privileged helper, set DEVELOPER_ID to your Apple Developer Team ID:"
     echo "  DEVELOPER_ID=ABCD123456 ./scripts/build-app.sh"
 fi
@@ -43,10 +43,16 @@ chmod +x "$BUNDLE_DIR/Contents/Library/LaunchServices/$HELPER_NAME"
 
 # Code signing
 if [ -n "$TEAM_ID" ]; then
-    echo "Signing helper and app with Developer ID..."
-    codesign --force --options runtime --sign "Developer ID Application: $TEAM_ID" \
+    # The certificate is named "Developer ID Application: <Name> (<TEAM_ID>)"; pick it by its hash.
+    IDENTITY=$(security find-identity -p codesigning | grep "Developer ID Application: .*($TEAM_ID)" | head -1 | awk '{print $2}')
+    if [ -z "$IDENTITY" ]; then
+        echo "ERROR: No 'Developer ID Application' certificate for team $TEAM_ID in the keychain." >&2
+        exit 1
+    fi
+    echo "Signing helper and app with Developer ID ($IDENTITY)..."
+    codesign --force --options runtime --sign "$IDENTITY" \
         "$BUNDLE_DIR/Contents/Library/LaunchServices/$HELPER_NAME"
-    codesign --force --options runtime --sign "Developer ID Application: $TEAM_ID" \
+    codesign --force --options runtime --sign "$IDENTITY" \
         "$BUNDLE_DIR"
 else
     echo "Ad-hoc signing helper and app..."

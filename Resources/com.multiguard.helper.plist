@@ -9,9 +9,7 @@
         <key>com.multiguard.helper</key>
         <true/>
     </dict>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/Library/PrivilegedHelperTools/com.multiguard.helper</string>
-    </array>
+    <key>BundleProgram</key>
+    <string>Contents/Library/LaunchServices/MultiGuardHelper</string>
 </dict>
 </plist>

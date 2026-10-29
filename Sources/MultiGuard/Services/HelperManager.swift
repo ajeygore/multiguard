@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import ServiceManagement
 
 enum HelperManagerError: Error, LocalizedError {
@@ -6,6 +7,8 @@ enum HelperManagerError: Error, LocalizedError {
     case connectionFailed
     case helperNotFound
     case notSigned
+    case timedOut(Int)
+    case unreachable(String)
 
     var errorDescription: String? {
         switch self {
@@ -17,6 +20,10 @@ enum HelperManagerError: Error, LocalizedError {
             return "Privileged helper not installed."
         case .notSigned:
             return "The app must be code-signed with an Apple Developer ID to install a privileged helper."
+        case .timedOut(let seconds):
+            return "The privileged helper did not answer within \(seconds) s."
+        case .unreachable(let msg):
+            return "Lost connection to privileged helper: \(msg)"
         }
     }
 }
@@ -32,14 +39,47 @@ final class HelperManager: ObservableObject {
     private let helperMachServiceName = "com.multiguard.helper"
     private let launchdPlistName = "com.multiguard.helper.plist"
 
+    /// How long to wait for the helper to answer a ping before giving up on it.
+    private let pingTimeout: TimeInterval = 3
+
     private init() {}
+
+    /// The helper only accepts clients signed with a Developer ID team, so for ad-hoc
+    /// (development) builds it can never work and must not be registered at all.
+    static let isDeveloperSigned: Bool = {
+        var code: SecCode?
+        guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return false }
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return false }
+        var info: CFDictionary?
+        guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+              let dict = info as? [String: Any] else { return false }
+        return dict[kSecCodeInfoTeamIdentifier as String] is String
+    }()
 
     func install() async throws {
         let service = SMAppService.daemon(plistName: launchdPlistName)
+        guard Self.isDeveloperSigned else {
+            // Remove a registration left behind by an earlier build: launchd would keep it in
+            // "spawn scheduled" forever and every XPC call to it would go unanswered.
+            if service.status != .notRegistered {
+                try? await service.unregister()
+            }
+            throw HelperManagerError.notSigned
+        }
+        if service.status == .enabled {
+            isInstalled = true
+            return
+        }
         do {
             try service.register()
             isInstalled = true
         } catch {
+            // The first registration needs the user to allow the background item in
+            // System Settings → General → Login Items; take them there.
+            if service.status == .requiresApproval {
+                SMAppService.openSystemSettingsLoginItems()
+            }
             throw HelperManagerError.installationFailed(error.localizedDescription)
         }
     }
@@ -58,39 +98,47 @@ final class HelperManager: ObservableObject {
             self?.connection = nil
         }
         newConnection.resume()
-        connection = newConnection
 
-        guard let proxy = newConnection.remoteObjectProxy as? MultiGuardHelperProtocol else {
-            throw HelperManagerError.connectionFailed
-        }
-
-        let pingResult = await withCheckedContinuation { continuation in
+        // Without an error handler and a timeout a helper that never starts (missing binary,
+        // rejected client) leaves the ping reply pending forever, and the caller never reaches
+        // the osascript fallback.
+        let once = ResumeOnce()
+        let pingResult = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            let proxy = newConnection.remoteObjectProxyWithErrorHandler { _ in
+                if once.claim() { continuation.resume(returning: false) }
+            } as? MultiGuardHelperProtocol
+            guard let proxy else {
+                if once.claim() { continuation.resume(returning: false) }
+                return
+            }
             proxy.ping { result in
-                continuation.resume(returning: result)
+                if once.claim() { continuation.resume(returning: result) }
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + pingTimeout) {
+                if once.claim() { continuation.resume(returning: false) }
             }
         }
 
         guard pingResult else {
+            newConnection.invalidate()
             throw HelperManagerError.connectionFailed
         }
 
+        connection = newConnection
         return newConnection
     }
 
     func connectTunnel(configPath: String) async throws -> String {
         try await ensureHelper()
-        let connection = try await connect()
-        guard let proxy = connection.remoteObjectProxy as? MultiGuardHelperProtocol else {
-            throw HelperManagerError.connectionFailed
-        }
-        return try await withCheckedThrowingContinuation { continuation in
+        // wg-quick itself is limited to 30 s inside the helper; leave room for the checks around it.
+        return try await call(timeout: 50) { proxy, finish in
             proxy.connect(withConfigPath: configPath) { interface, error in
                 if let error = error {
-                    continuation.resume(throwing: error)
+                    finish(.failure(error))
                 } else if let interface = interface {
-                    continuation.resume(returning: interface)
+                    finish(.success(interface))
                 } else {
-                    continuation.resume(throwing: HelperManagerError.connectionFailed)
+                    finish(.failure(HelperManagerError.connectionFailed))
                 }
             }
         }
@@ -98,17 +146,9 @@ final class HelperManager: ObservableObject {
 
     func disconnectTunnel(configPath: String) async throws {
         try await ensureHelper()
-        let connection = try await connect()
-        guard let proxy = connection.remoteObjectProxy as? MultiGuardHelperProtocol else {
-            throw HelperManagerError.connectionFailed
-        }
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+        try await call(timeout: 50) { proxy, finish in
             proxy.disconnect(withConfigPath: configPath) { error in
-                if let error = error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume()
-                }
+                finish(error.map { .failure($0) } ?? .success(()))
             }
         }
     }
@@ -117,21 +157,52 @@ final class HelperManager: ObservableObject {
     /// tries to install the helper: it is polled every few seconds, so it must be cheap when the
     /// helper is unavailable (unsigned development builds).
     func tunnelStats(interface: String) async throws -> String {
-        guard isInstalled else { throw HelperManagerError.helperNotFound }
-        let connection = try await connect()
-        guard let proxy = connection.remoteObjectProxy as? MultiGuardHelperProtocol else {
-            throw HelperManagerError.connectionFailed
-        }
-        return try await withCheckedThrowingContinuation { continuation in
+        guard Self.isDeveloperSigned, isInstalled else { throw HelperManagerError.helperNotFound }
+        return try await call(timeout: 8) { proxy, finish in
             proxy.stats(forInterface: interface) { dump, error in
                 if let error = error {
-                    continuation.resume(throwing: error)
+                    finish(.failure(error))
                 } else if let dump = dump {
-                    continuation.resume(returning: dump)
+                    finish(.success(dump))
                 } else {
-                    continuation.resume(throwing: HelperManagerError.connectionFailed)
+                    finish(.failure(HelperManagerError.connectionFailed))
                 }
             }
+        }
+    }
+
+    /// Send one request to the helper. The reply, a connection error and the timeout race and the
+    /// first one wins: a reply that never arrives used to leave a tunnel in "Disconnecting…" forever.
+    private func call<T>(
+        timeout: TimeInterval,
+        _ send: @escaping (MultiGuardHelperProtocol, @escaping (Result<T, Error>) -> Void) -> Void
+    ) async throws -> T {
+        let connection = try await connect()
+        let once = ResumeOnce()
+        do {
+            return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, Error>) in
+                let finish: (Result<T, Error>) -> Void = { result in
+                    if once.claim() { continuation.resume(with: result) }
+                }
+                let proxy = connection.remoteObjectProxyWithErrorHandler { error in
+                    finish(.failure(HelperManagerError.unreachable(error.localizedDescription)))
+                } as? MultiGuardHelperProtocol
+                guard let proxy else {
+                    finish(.failure(HelperManagerError.connectionFailed))
+                    return
+                }
+                send(proxy, finish)
+                DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+                    finish(.failure(HelperManagerError.timedOut(Int(timeout))))
+                }
+            }
+        } catch let error as HelperManagerError {
+            // Start from a fresh connection next time instead of reusing one that stopped answering.
+            if self.connection === connection {
+                connection.invalidate()
+                self.connection = nil
+            }
+            throw error
         }
     }
 
@@ -139,5 +210,19 @@ final class HelperManager: ObservableObject {
         if !isInstalled {
             try await install()
         }
+    }
+}
+
+/// Guards a continuation that several callbacks (reply, error handler, timeout) race to resume.
+private final class ResumeOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var claimed = false
+
+    func claim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if claimed { return false }
+        claimed = true
+        return true
     }
 }

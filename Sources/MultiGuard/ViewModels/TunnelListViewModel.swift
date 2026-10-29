@@ -9,6 +9,7 @@ class TunnelListViewModel: ObservableObject {
 
     private let manager = TunnelManager()
     private var detailsRefreshTimer: Timer?
+    private var isRefreshingDetails = false
 
     var hasSelection: Bool {
         !selectedTunnelIDs.isEmpty
@@ -205,8 +206,20 @@ class TunnelListViewModel: ObservableObject {
     }
 
     private func refreshConnectedDetails() async {
+        // The timer fires every 2 s; with a slow helper, overlapping refreshes would pile up.
+        guard !isRefreshingDetails else { return }
+        isRefreshingDetails = true
+        defer { isRefreshingDetails = false }
+
+        let running = await manager.liveInterfaces()
         for index in tunnels.indices {
             if case .connected(let interface) = tunnels[index].status {
+                // wireguard-go died (sleep, network change, crash): say so instead of showing stale stats.
+                if let running, !running.contains(interface) {
+                    tunnels[index].status = .failed("Tunnel is no longer running")
+                    tunnels[index].details = nil
+                    continue
+                }
                 if let details = try? await TunnelDetailsFetcher.fetch(for: tunnels[index], interface: interface) {
                     tunnels[index].details = details.withRates(since: tunnels[index].details)
                 }
