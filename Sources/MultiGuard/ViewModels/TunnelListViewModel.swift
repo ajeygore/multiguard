@@ -57,6 +57,53 @@ class TunnelListViewModel: ObservableObject {
         }
     }
 
+    func configContent(for tunnel: Tunnel) async throws -> String {
+        try await TunnelStore.shared.configContent(for: tunnel)
+    }
+
+    /// Save an edited profile. A connected tunnel is taken down with its old config first, so
+    /// wg-quick runs the PreDown/PostDown hooks the tunnel was brought up with, and is then brought
+    /// up again with the new one. Throws only if nothing was saved; a failed reconnect shows on the card.
+    func updateProfile(_ tunnel: Tunnel, name: String, content: String) async throws {
+        _ = try ConfigParser.parse(content)
+        guard let index = tunnels.firstIndex(where: { $0.id == tunnel.id }) else { return }
+        let wasConnected = tunnels[index].status.isConnected
+
+        if wasConnected {
+            tunnels[index].status = .disconnecting
+            do {
+                try await manager.disconnect(tunnels[index])
+            } catch {
+                tunnels[index].status = .failed(error.localizedDescription)
+                throw error
+            }
+            tunnels[index].status = .disconnected
+            tunnels[index].details = nil
+        }
+
+        let config = try await TunnelStore.shared.updateConfig(for: tunnels[index], content: content)
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedName.isEmpty {
+            tunnels[index].name = trimmedName
+        }
+        tunnels[index].config = config
+        recomputeConflicts()
+        save()
+
+        if wasConnected {
+            await applyToggle(tunnels[index])
+            recomputeConflicts()
+        }
+    }
+
+    func rename(_ tunnel: Tunnel, to name: String) {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty, let index = tunnels.firstIndex(where: { $0.id == tunnel.id }) else { return }
+        tunnels[index].name = trimmedName
+        recomputeConflicts()
+        save()
+    }
+
     func remove(_ tunnel: Tunnel) {
         Task {
             if case .connected = tunnel.status {

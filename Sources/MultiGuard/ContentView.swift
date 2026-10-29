@@ -5,6 +5,7 @@ struct ContentView: View {
     @StateObject private var viewModel = AppState.shared.viewModel
     @StateObject private var appearance = AppearanceController.shared
     @State private var showingImporter = false
+    @State private var editingTunnel: Tunnel?
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -71,6 +72,9 @@ struct ContentView: View {
             case .failure(let error):
                 viewModel.importError = error.localizedDescription
             }
+        }
+        .sheet(item: $editingTunnel) { tunnel in
+            ProfileEditorView(tunnel: tunnel, viewModel: viewModel)
         }
     }
 
@@ -170,6 +174,7 @@ struct ContentView: View {
                     isSelected: viewModel.selectedTunnelIDs.contains(tunnel.id),
                     onToggle: { viewModel.toggle(tunnel) },
                     onBindChange: { viewModel.setBindInterface($0, for: tunnel) },
+                    onEdit: { editingTunnel = tunnel },
                     onRemove: { viewModel.remove(tunnel) },
                     onSelectionChange: { viewModel.setSelected(tunnel, isSelected: $0) }
                 )

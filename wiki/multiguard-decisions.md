@@ -25,3 +25,9 @@ Each imported config is copied to a uniquely-named file (`mg_<12-hex-chars>.conf
 ## Local config copies
 
 Imported `.conf` content is copied into `~/Library/Application Support/MultiGuard/Configs/`. This lets users delete the original files and still connect, and ensures the stored path is stable for `wg-quick up/down`.
+
+## Edit profiles as raw config text
+
+Profiles used to be immutable: changing one meant deleting and re-importing it. The editor shows the full `.conf` text. Rejected: a form with one field per key — `ConfigParser` only models a subset of keys (no `PostUp`, `Table`, …), so a form would silently drop the rest; opening the file in an external editor — no validation and no way to handle a connected tunnel.
+
+A connected tunnel is taken down **before** the file is overwritten, because `wg-quick down` reads the config for its `PreDown`/`PostDown` hooks and must see the version the tunnel was brought up with. A rename alone saves without reconnecting.

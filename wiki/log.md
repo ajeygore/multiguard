@@ -17,3 +17,8 @@ This is an append-only log of modifications, updates, and indexing runs performe
 - Created project pages: `multiguard-overview.md`, `multiguard-architecture.md`, `multiguard-setup.md`, `multiguard-decisions.md`, `wireguard-official-architecture.md`.
 - Updated `wiki/index.md` to catalog the new Project section.
 - Prepared to lint, commit, and push.
+
+## [2026-10-28] feature | Edit profiles in place.
+- New `ProfileEditorView` (pencil button on each card): rename, edit config text with live validation, Save & Reconnect for connected tunnels.
+- `TunnelStore.configContent` / `updateConfig`, `TunnelListViewModel.updateProfile` / `rename`.
+- Updated `multiguard-architecture.md`, `multiguard-decisions.md`.

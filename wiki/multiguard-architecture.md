@@ -22,6 +22,7 @@ summary: Internal structure of the MultiGuard app and its privileged helper.
 - **`HelperManager`** — Installs the helper via `SMAppService` and manages the XPC connection.
 - **`TunnelDetailsFetcher`** — Queries `wg show <interface>` for live RX/TX stats.
 - **`ContentView` / `MenuBarView`** — SwiftUI frontends.
+- **`ProfileEditorView`** — Sheet (pencil button on a tunnel card) to rename a profile and edit its config text in place. Parses on every keystroke; `TunnelStore.updateConfig` parses again before overwriting the file. A connected tunnel is disconnected with the old config, then reconnected with the new one ("Save & Reconnect").
 
 ## Privileged helper
 

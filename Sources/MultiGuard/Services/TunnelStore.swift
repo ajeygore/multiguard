@@ -51,6 +51,18 @@ actor TunnelStore {
         return Tunnel(id: id, name: name, fileURL: configURL, config: config, bindInterface: bindInterface)
     }
 
+    func configContent(for tunnel: Tunnel) throws -> String {
+        try String(contentsOf: configURL(for: tunnel.id), encoding: .utf8)
+    }
+
+    /// Replace a tunnel's config. The content is parsed first, so an invalid edit never
+    /// overwrites a working file.
+    func updateConfig(for tunnel: Tunnel, content: String) throws -> WireGuardConfig {
+        let config = try ConfigParser.parse(content)
+        try content.write(to: configURL(for: tunnel.id), atomically: true, encoding: .utf8)
+        return config
+    }
+
     func save(_ tunnels: [Tunnel]) async throws {
         let persisted = tunnels.map { tunnel in
             PersistedTunnel(id: tunnel.id, name: tunnel.name, bindInterface: tunnel.bindInterface)

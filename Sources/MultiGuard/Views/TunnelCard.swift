@@ -5,6 +5,7 @@ struct TunnelCard: View {
     let isSelected: Bool
     let onToggle: () -> Void
     let onBindChange: (String?) -> Void
+    let onEdit: () -> Void
     let onRemove: () -> Void
     let onSelectionChange: (Bool) -> Void
     @State private var bindText: String = ""
@@ -59,6 +60,20 @@ struct TunnelCard: View {
                         .onSubmit {
                             onBindChange(bindText.isEmpty ? nil : bindText)
                         }
+
+                    Button {
+                        onEdit()
+                    } label: {
+                        Image(systemName: "pencil")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .padding(6)
+                    .background(Color.secondary.opacity(0.1))
+                    .clipShape(Circle())
+                    .disabled(isBusy)
+                    .help("Edit profile")
 
                     Button {
                         onRemove()
