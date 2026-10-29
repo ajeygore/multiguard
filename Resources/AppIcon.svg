@@ -1,15 +1,19 @@
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- macOS icon grid: 824×824 rounded square centred on the 1024 canvas, leaving room for the shadow
+       that scripts/render-icon.swift adds (NSImage ignores SVG filters). -->
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0A84FF"/>
-      <stop offset="100%" stop-color="#0051D5"/>
+      <stop offset="0%" stop-color="#2E9BFF"/>
+      <stop offset="100%" stop-color="#0047C2"/>
     </linearGradient>
     <linearGradient id="shield" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" stop-color="#FFFFFF"/>
-      <stop offset="100%" stop-color="#E6F0FF"/>
+      <stop offset="100%" stop-color="#DCE9FF"/>
     </linearGradient>
   </defs>
-  <rect width="1024" height="1024" rx="224" ry="224" fill="url(#bg)"/>
-  <path d="M512 224 C512 224 288 304 288 448 C288 672 512 800 512 800 C512 800 736 672 736 448 C736 304 512 224 512 224 Z" fill="url(#shield)"/>
-  <path d="M432 448 L512 544 L624 416" stroke="#0051D5" stroke-width="56" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="url(#bg)"/>
+  <!-- Second shield behind: several tunnels. -->
+  <path d="M592 236 C592 236 412 300 412 420 C412 600 592 704 592 704 C592 704 772 600 772 420 C772 300 592 236 592 236 Z" fill="#FFFFFF" fill-opacity="0.32"/>
+  <path d="M472 288 C472 288 276 358 276 488 C276 684 472 796 472 796 C472 796 668 684 668 488 C668 358 472 288 472 288 Z" fill="url(#shield)"/>
+  <path d="M400 500 L464 576 L556 468" stroke="#0047C2" stroke-width="50" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
 </svg>

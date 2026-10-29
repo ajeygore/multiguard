@@ -4,19 +4,18 @@ set -e
 ASSETS_DIR="Resources/Assets.xcassets/AppIcon.appiconset"
 SVG="Resources/AppIcon.svg"
 
-if command -v magick >/dev/null 2>&1; then
-    MAGICK=magick
-else
-    MAGICK=convert
-fi
-
 mkdir -p "$ASSETS_DIR"
+
+# Compile the renderer once instead of interpreting it for every size.
+RENDER="$(mktemp -d)/render-icon"
+swiftc -O -o "$RENDER" scripts/render-icon.swift
 
 SIZES=(16 32 128 256 512)
 for size in "${SIZES[@]}"; do
-    $MAGICK "$SVG" -background none -resize "${size}x${size}" "${ASSETS_DIR}/icon_${size}x${size}.png"
-    $MAGICK "$SVG" -background none -resize "$((size * 2))x$((size * 2))" "${ASSETS_DIR}/icon_${size}x${size}@2x.png"
+    "$RENDER" "$SVG" "${ASSETS_DIR}/icon_${size}x${size}.png" "$size"
+    "$RENDER" "$SVG" "${ASSETS_DIR}/icon_${size}x${size}@2x.png" "$((size * 2))"
 done
+rm -f "$RENDER"
 
 # Build a .icns file for standalone app bundles (asset catalogs need full Xcode; iconutil works with CLT)
 ICONSET_DIR="/tmp/MultiGuard.iconset"

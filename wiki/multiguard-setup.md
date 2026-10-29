@@ -50,3 +50,13 @@ security find-identity -v -p codesigning
 ```
 
 Unsigned builds ad-hoc sign the app and fall back to the standard macOS administrator prompt.
+
+## App icon
+
+`Resources/AppIcon.svg` is the source; it follows the macOS grid (824×824 rounded square centred on 1024×1024). Regenerate the PNGs and `Resources/MultiGuard.icns` with:
+
+```bash
+./scripts/generate-icon.sh
+```
+
+It renders through AppKit (`scripts/render-icon.swift`), which also adds the drop shadow. ImageMagick is no longer used: its fallback renderer ignored the SVG gradients and produced a black icon.

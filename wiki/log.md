@@ -17,3 +17,8 @@ This is an append-only log of modifications, updates, and indexing runs performe
 - Created project pages: `multiguard-overview.md`, `multiguard-architecture.md`, `multiguard-setup.md`, `multiguard-decisions.md`, `wireguard-official-architecture.md`.
 - Updated `wiki/index.md` to catalog the new Project section.
 - Prepared to lint, commit, and push.
+
+## [2026-10-28] fix | Proper app icon.
+- The bundled `.icns` was a black square: ImageMagick's fallback SVG renderer ignored the gradients.
+- Icon redesigned on the macOS grid (two shields for multiple tunnels) and rendered via AppKit (`scripts/render-icon.swift`).
+- Updated `multiguard-setup.md`.
