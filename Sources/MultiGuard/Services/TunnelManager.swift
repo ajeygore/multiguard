@@ -68,12 +68,42 @@ actor TunnelManager {
     }
 
     func disconnect(_ tunnel: Tunnel) async throws {
+        let interface = activeInterfaces[tunnel.id]
         do {
             try await HelperManager.shared.disconnectTunnel(configPath: tunnel.fileURL.path)
         } catch {
-            try await fallbackDisconnect(tunnel)
+            do {
+                try await fallbackDisconnect(tunnel)
+            } catch let error where Self.isAlreadyDown(error) {
+                // The tunnel died on its own (wireguard-go exited); down is the state we wanted.
+            }
         }
         activeInterfaces.removeValue(forKey: tunnel.id)
+        if let interface { await waitForRemoval(of: interface) }
+    }
+
+    /// Interfaces with a live WireGuard control socket. `nil` when `wg` can't be run, so callers
+    /// don't mistake a tooling problem for every tunnel having gone down.
+    func liveInterfaces() async -> Set<String>? {
+        guard let wg = try? await WireGuardPaths.findExecutable("wg"),
+              let output = try? await ShellRunner.run(wg, arguments: ["show", "interfaces"]) else { return nil }
+        return Set(output.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty })
+    }
+
+    /// wg-quick reports "`name' is not a WireGuard interface" when there is nothing left to bring down.
+    private static func isAlreadyDown(_ error: Error) -> Bool {
+        error.localizedDescription.contains("is not a WireGuard interface")
+    }
+
+    /// `wg-quick down` only deletes the control socket; wireguard-go and wg-quick's route monitor
+    /// then tear the utun down asynchronously. Reconnecting before that finishes can hand the new
+    /// tunnel the same utun name, which the old monitor then mistakes for its own and strips of
+    /// routes and DNS on exit. Wait (briefly) for the interface to really disappear.
+    private func waitForRemoval(of interface: String) async {
+        for _ in 0..<15 {
+            if (try? await ShellRunner.run("/sbin/ifconfig", arguments: [interface])) == nil { return }
+            try? await Task.sleep(nanoseconds: 200_000_000)
+        }
     }
 
     func connectTunnels(_ tunnels: [Tunnel]) async throws -> [UUID: String] {
@@ -98,15 +128,46 @@ actor TunnelManager {
         return interfaces
     }
 
-    func disconnectTunnels(_ tunnels: [Tunnel]) async throws {
+    /// Bring dropped tunnels back up under a single privilege prompt (one prompt per tunnel would
+    /// be a barrage after every wake). Returns the interfaces of the tunnels that came up.
+    func reconnect(_ tunnels: [Tunnel]) async throws -> [UUID: String] {
+        if await HelperManager.shared.isInstalled {
+            return try await connectTunnels(tunnels).filter { $0.value != "unknown" }
+        }
+        let wgQuick = try await WireGuardPaths.findExecutable("wg-quick")
+        let bash = try await BashPaths.findBash4()
+        // Each tunnel in its own subshell so one failure doesn't stop the rest, with one retry for
+        // the window after wake where the endpoint's DNS name doesn't resolve yet. Which tunnels
+        // actually came up is read back afterwards rather than parsed from the output.
+        let script = try tunnels.map { tunnel in
+            let up = try Self.upScript(for: tunnel, bash: bash, wgQuick: wgQuick)
+            return "( (\(up)) || (sleep 3; \(up)) )"
+        }.joined(separator: "; ") + "; exit 0"
+        let names = tunnels.map(\.name).joined(separator: ", ")
+        _ = try await ShellRunner.runAsAdmin(script: script, prompt: "MultiGuard needs to reconnect \(names).")
+        return await runningInterfaces(for: tunnels)
+    }
+
+    /// After wake the tunnel can drop before Wi-Fi is back; reconnecting then just fails.
+    func waitForDefaultRoute(timeout: TimeInterval) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if (try? await ShellRunner.run("/sbin/route", arguments: ["-n", "get", "default"])) != nil { return }
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+        }
+    }
+
+    /// Returns the tunnels that failed to disconnect, with the reason.
+    func disconnectTunnels(_ tunnels: [Tunnel]) async -> [UUID: String] {
+        var failures: [UUID: String] = [:]
         for tunnel in tunnels {
             do {
-                try await HelperManager.shared.disconnectTunnel(configPath: tunnel.fileURL.path)
+                try await disconnect(tunnel)
             } catch {
-                try? await fallbackDisconnect(tunnel)
+                failures[tunnel.id] = error.localizedDescription
             }
-            activeInterfaces.removeValue(forKey: tunnel.id)
         }
+        return failures
     }
 
     // MARK: - Fallback for unsigned / development builds
@@ -116,7 +177,7 @@ actor TunnelManager {
         let wg = try await WireGuardPaths.findExecutable("wg")
         let bash = try await BashPaths.findBash4()
 
-        _ = try await ShellRunner.runAsAdmin(command: bash, arguments: [wgQuick, "up", tunnel.fileURL.path])
+        _ = try await ShellRunner.runAsAdmin(script: try Self.upScript(for: tunnel, bash: bash, wgQuick: wgQuick))
 
         let interface = try await discoverInterface(for: tunnel.config, wgPath: wg)
         return interface
@@ -125,7 +186,61 @@ actor TunnelManager {
     private func fallbackDisconnect(_ tunnel: Tunnel) async throws {
         let wgQuick = try await WireGuardPaths.findExecutable("wg-quick")
         let bash = try await BashPaths.findBash4()
-        _ = try await ShellRunner.runAsAdmin(command: bash, arguments: [wgQuick, "down", tunnel.fileURL.path])
+        _ = try await ShellRunner.runAsAdmin(command: bash, arguments: [wgQuick, "down", tunnel.fileURL.path], logURL: Self.logURL(for: tunnel))
+    }
+
+    /// The root shell script that brings `tunnel` up as a launchd job of its own.
+    ///
+    /// Run straight from `do shell script … with administrator privileges`, wireguard-go and
+    /// wg-quick's route monitor stay in the process group of the system's authtrampoline job, and
+    /// launchd kills that group when memory pressure idle-exits the trampoline (~13 minutes in),
+    /// taking every tunnel down at once. Our own job with AbandonProcessGroup leaves them running
+    /// after `wg-quick up` returns. The script waits for that exit and mirrors its status and error
+    /// text, so callers see the same result as running wg-quick directly.
+    private static func upScript(for tunnel: Tunnel, bash: String, wgQuick: String) throws -> String {
+        let label = "com.multiguard.tunnel." + tunnel.fileURL.deletingPathExtension().lastPathComponent
+        let log = logURL(for: tunnel).path
+        let rcPath = "/var/run/multiguard/\(label).rc"
+        let job: [String: Any] = [
+            "Label": label,
+            // launchd reports no exit code while wg-quick's route monitor is alive in the job, so
+            // the wrapper records wg-quick's own status in a file the script polls instead.
+            "ProgramArguments": ["/bin/sh", "-c", "\"$@\"; echo $? >" + ShellRunner.escapeForShell(rcPath),
+                                 "sh", bash, wgQuick, "up", tunnel.fileURL.path],
+            // wireguard-go only logs (to the job's stdout) when LOG_LEVEL is set.
+            "EnvironmentVariables": ["LOG_LEVEL": "error"],
+            "StandardOutPath": log,
+            "StandardErrorPath": log,
+            "RunAtLoad": true,
+            "KeepAlive": false,
+            "AbandonProcessGroup": true,
+            "ProcessType": "Interactive",
+        ]
+        let staged = FileManager.default.temporaryDirectory.appendingPathComponent(label + ".plist")
+        try PropertyListSerialization.data(fromPropertyList: job, format: .xml, options: 0).write(to: staged)
+
+        // launchd only loads root-owned plists, hence the copy. The status file appears once
+        // wg-quick has exited; give it a minute (endpoint DNS can be slow right after wake).
+        let q = ShellRunner.escapeForShell
+        return """
+        L=\(q(label)); P=\(q("/var/run/multiguard/\(label).plist")); LOG=\(q(log)); RC=\(q(rcPath)); \
+        mkdir -p /var/run/multiguard && install -o root -g wheel -m 644 \(q(staged.path)) "$P" || exit 1; \
+        launchctl bootout system/$L 2>/dev/null; rm -f "$RC"; echo "== $(date '+%F %T') up" >>"$LOG"; \
+        launchctl bootstrap system "$P" || exit 1; \
+        rc=; for i in $(seq 300); do \
+        [ -s "$RC" ] && { rc=$(cat "$RC"); break; }; sleep 0.2; done; \
+        launchctl bootout system/$L 2>/dev/null; rm -f "$RC"; \
+        [ "$rc" = 0 ] || { tail -n 3 "$LOG" >&2; exit 1; }
+        """
+    }
+
+    /// `~/Library/Logs/MultiGuard/<interface name>.log`: wg-quick output plus wireguard-go errors,
+    /// so a tunnel that dies on its own leaves a reason behind.
+    private static func logURL(for tunnel: Tunnel) -> URL {
+        let directory = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Logs/MultiGuard", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory.appendingPathComponent(tunnel.fileURL.deletingPathExtension().lastPathComponent + ".log")
     }
 
     private func discoverInterface(for config: WireGuardConfig, wgPath: String) async throws -> String {

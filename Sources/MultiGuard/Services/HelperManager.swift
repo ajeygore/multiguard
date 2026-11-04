@@ -60,30 +60,38 @@ final class HelperManager: ObservableObject {
         newConnection.resume()
         connection = newConnection
 
-        guard let proxy = newConnection.remoteObjectProxy as? MultiGuardHelperProtocol else {
-            throw HelperManagerError.connectionFailed
-        }
-
-        let pingResult = await withCheckedContinuation { continuation in
+        let pingResult = try? await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Bool, Error>) in
+            guard let proxy = Self.proxy(of: newConnection, resumingOnError: continuation) else { return }
             proxy.ping { result in
                 continuation.resume(returning: result)
             }
         }
 
-        guard pingResult else {
+        guard pingResult == true else {
+            newConnection.invalidate()
+            connection = nil
             throw HelperManagerError.connectionFailed
         }
 
         return newConnection
     }
 
+    /// A proxy whose XPC failures (helper not running, connection rejected) resume `continuation`
+    /// with an error. A plain `remoteObjectProxy` silently drops the reply in those cases, leaving
+    /// the caller suspended forever. XPC calls exactly one of the reply block or the error handler.
+    private static func proxy<T>(of connection: NSXPCConnection, resumingOnError continuation: CheckedContinuation<T, Error>) -> MultiGuardHelperProtocol? {
+        let proxy = connection.remoteObjectProxyWithErrorHandler { error in
+            continuation.resume(throwing: error)
+        } as? MultiGuardHelperProtocol
+        if proxy == nil { continuation.resume(throwing: HelperManagerError.connectionFailed) }
+        return proxy
+    }
+
     func connectTunnel(configPath: String) async throws -> String {
         try await ensureHelper()
         let connection = try await connect()
-        guard let proxy = connection.remoteObjectProxy as? MultiGuardHelperProtocol else {
-            throw HelperManagerError.connectionFailed
-        }
         return try await withCheckedThrowingContinuation { continuation in
+            guard let proxy = Self.proxy(of: connection, resumingOnError: continuation) else { return }
             proxy.connect(withConfigPath: configPath) { interface, error in
                 if let error = error {
                     continuation.resume(throwing: error)
@@ -99,10 +107,8 @@ final class HelperManager: ObservableObject {
     func disconnectTunnel(configPath: String) async throws {
         try await ensureHelper()
         let connection = try await connect()
-        guard let proxy = connection.remoteObjectProxy as? MultiGuardHelperProtocol else {
-            throw HelperManagerError.connectionFailed
-        }
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            guard let proxy = Self.proxy(of: connection, resumingOnError: continuation) else { return }
             proxy.disconnect(withConfigPath: configPath) { error in
                 if let error = error {
                     continuation.resume(throwing: error)
@@ -119,10 +125,8 @@ final class HelperManager: ObservableObject {
     func tunnelStats(interface: String) async throws -> String {
         guard isInstalled else { throw HelperManagerError.helperNotFound }
         let connection = try await connect()
-        guard let proxy = connection.remoteObjectProxy as? MultiGuardHelperProtocol else {
-            throw HelperManagerError.connectionFailed
-        }
         return try await withCheckedThrowingContinuation { continuation in
+            guard let proxy = Self.proxy(of: connection, resumingOnError: continuation) else { return }
             proxy.stats(forInterface: interface) { dump, error in
                 if let error = error {
                     continuation.resume(throwing: error)

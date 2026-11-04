@@ -140,17 +140,14 @@ class TunnelListViewModel: ObservableObject {
                 tunnels[index].status = .disconnecting
             }
 
-            do {
-                try await manager.disconnectTunnels(selected)
-                for tunnel in selected {
-                    guard let index = tunnels.firstIndex(where: { $0.id == tunnel.id }) else { continue }
+            let failures = await manager.disconnectTunnels(selected)
+            for tunnel in selected {
+                guard let index = tunnels.firstIndex(where: { $0.id == tunnel.id }) else { continue }
+                if let message = failures[tunnel.id] {
+                    tunnels[index].status = .failed(message)
+                } else {
                     tunnels[index].status = .disconnected
                     tunnels[index].details = nil
-                }
-            } catch {
-                for tunnel in selected {
-                    guard let index = tunnels.firstIndex(where: { $0.id == tunnel.id }) else { continue }
-                    tunnels[index].status = .failed(error.localizedDescription)
                 }
             }
             recomputeConflicts()
@@ -205,13 +202,70 @@ class TunnelListViewModel: ObservableObject {
     }
 
     private func refreshConnectedDetails() async {
+        let live = await manager.liveInterfaces()
+        await adoptStrayTunnels(live: live)
+        var dropped: [Tunnel] = []
         for index in tunnels.indices {
             if case .connected(let interface) = tunnels[index].status {
+                // The tunnel went away without us (wireguard-go exited, typically around sleep/wake).
+                if let live, !live.contains(interface) {
+                    tunnels[index].status = .connecting
+                    tunnels[index].details = nil
+                    dropped.append(tunnels[index])
+                    continue
+                }
                 if let details = try? await TunnelDetailsFetcher.fetch(for: tunnels[index], interface: interface) {
                     tunnels[index].details = details.withRates(since: tunnels[index].details)
                 }
             }
         }
+        if !dropped.isEmpty {
+            Task { await reconnectDropped(dropped) }
+        }
+    }
+
+    /// A tunnel shown as disconnected or failed while its interface is in fact up (e.g. a connect
+    /// that reported an error after wg-quick had already succeeded) is marked connected again.
+    private func adoptStrayTunnels(live: Set<String>?) async {
+        guard let live, !live.isEmpty,
+              tunnels.contains(where: { $0.status.isDisconnectedOrFailed }) else { return }
+        let candidates = tunnels.filter { $0.status.isDisconnectedOrFailed }
+        let running = await manager.runningInterfaces(for: candidates)
+        for (id, interface) in running {
+            // Re-check: the status may have changed while the interfaces were being read.
+            guard let index = tunnels.firstIndex(where: { $0.id == id }),
+                  tunnels[index].status.isDisconnectedOrFailed else { continue }
+            tunnels[index].status = .connected(interface: interface)
+            tunnels[index].details = try? await TunnelDetailsFetcher.fetch(for: tunnels[index], interface: interface)
+        }
+        if !running.isEmpty { recomputeConflicts() }
+    }
+
+    /// One automatic attempt, under a single admin prompt, once the network is back. A failed or
+    /// cancelled attempt leaves the tunnels failed for the user to retry: no prompt loops.
+    private func reconnectDropped(_ dropped: [Tunnel]) async {
+        await manager.waitForDefaultRoute(timeout: 30)
+        var interfaces: [UUID: String] = [:]
+        let failure: String
+        do {
+            interfaces = try await manager.reconnect(dropped)
+            failure = "Tunnel went down and could not be reconnected"
+        } catch ShellError.cancelled {
+            failure = "Tunnel went down; reconnect cancelled"
+        } catch {
+            failure = error.localizedDescription
+        }
+        for tunnel in dropped {
+            guard let index = tunnels.firstIndex(where: { $0.id == tunnel.id }),
+                  tunnels[index].status == .connecting else { continue }
+            if let interface = interfaces[tunnel.id] {
+                tunnels[index].status = .connected(interface: interface)
+                tunnels[index].details = try? await TunnelDetailsFetcher.fetch(for: tunnels[index], interface: interface)
+            } else {
+                tunnels[index].status = .failed(failure)
+            }
+        }
+        recomputeConflicts()
     }
 
     private func save() {
