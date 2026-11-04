@@ -25,3 +25,15 @@ Each imported config is copied to a uniquely-named file (`mg_<12-hex-chars>.conf
 ## Local config copies
 
 Imported `.conf` content is copied into `~/Library/Application Support/MultiGuard/Configs/`. This lets users delete the original files and still connect, and ensures the stored path is stable for `wg-quick up/down`.
+
+## Run each tunnel as its own launchd job (unsigned fallback)
+
+Run directly from `osascript … with administrator privileges`, `wireguard-go` and wg-quick's route monitor stay in the process group of the system's `authtrampoline` job. launchd kills that group when memory pressure idle-exits the trampoline (about 13 minutes in), taking every tunnel down at once.
+
+Each tunnel is now bootstrapped as `com.multiguard.tunnel.<name>` with `AbandonProcessGroup`, so the daemons outlive `wg-quick up`. Output goes to `~/Library/Logs/MultiGuard/<name>.log`.
+
+**Rejected:** `nohup`/`setsid` (still in the trampoline's launchd job, so still killed); polling `launchctl print` for `last exit code` (launchd never reports one while the route monitor is alive in the job, so every connect waited out a 60s timeout and reported a false failure, see 2026-11-04 incident in the log). The job's `sh` wrapper writes wg-quick's exit status to `/var/run/multiguard/<label>.rc` and the script polls that.
+
+## Reconcile UI state with the system
+
+The 2s refresh compares tunnels against `wg show interfaces`. A tunnel marked connected whose interface vanished is reconnected once (single admin prompt, after the default route returns); a tunnel marked disconnected or failed whose interface is up is adopted as connected. The system, not the last command's result, is the source of truth.

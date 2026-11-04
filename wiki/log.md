@@ -17,3 +17,9 @@ This is an append-only log of modifications, updates, and indexing runs performe
 - Created project pages: `multiguard-overview.md`, `multiguard-architecture.md`, `multiguard-setup.md`, `multiguard-decisions.md`, `wireguard-official-architecture.md`.
 - Updated `wiki/index.md` to catalog the new Project section.
 - Prepared to lint, commit, and push.
+
+## [2026-11-04] incident | MultiGuard tunnels shown as failed/disconnected while up
+- Diagnosis: first connect of each tunnel waited ~60s for a launchd exit code that never appears (route monitor alive in the job), then exited 1; the app showed Failed on a healthy tunnel. Re-clicking Connect hit wg-quick's "already exists" and adopted it.
+- Fix: exit status passed through a file written by an `sh` wrapper; refresh loop adopts running tunnels shown as failed/disconnected.
+- Also landed: per-tunnel launchd jobs (survive authtrampoline idle-exit), XPC error handlers (no hung continuations), single-prompt auto-reconnect after drop/wake, wait for utun removal on disconnect, per-tunnel logs.
+- Updated `multiguard-decisions.md`.
