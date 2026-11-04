@@ -21,10 +21,13 @@ brew install wireguard-tools bash
 
 ```bash
 cd multiguard
-swift build
-./scripts/build-app.sh
-open MultiGuard.app
+./scripts/build-app.sh            # builds and signs ./MultiGuard.app
+./scripts/build-app.sh --install  # also installs to /Applications and launches it
 ```
+
+`--install` quits a running copy, replaces `/Applications/MultiGuard.app`, verifies the signature and opens it.
+
+The bundle is assembled and signed in a temp directory, then copied out. The repo lives under `~/Documents`, which iCloud syncs, and the file provider attaches `com.apple.FinderInfo` / `com.apple.fileprovider.*` attributes that `xattr -c` cannot strip; `codesign` then fails with "resource fork, Finder information, or similar detritus not allowed". For the same reason the `./MultiGuard.app` copy in the repo may fail `codesign --verify --strict`; the installed copy in `/Applications` is the one to run.
 
 ## Open in Xcode
 

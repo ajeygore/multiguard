@@ -27,3 +27,8 @@ This is an append-only log of modifications, updates, and indexing runs performe
 ## [2026-11-04] fix | Match a new tunnel's utun by interface address
 - `TunnelManager.discoverInterface` matches config addresses against `ifconfig`; peer-key match kept as privileged fallback; no more `interfaces.last` guess. Added `ShellError.failed`.
 - Updated `multiguard-decisions.md`.
+
+## [2026-11-04] build | Sign outside iCloud, add `--install` to build-app.sh
+- Ad-hoc signing failed with "detritus not allowed": iCloud's file provider re-adds FinderInfo/fileprovider xattrs to bundles under `~/Documents`. Script now stages and signs in a temp dir, verifies, then copies out.
+- New `--install` flag replaces and launches `/Applications/MultiGuard.app`. Deployed build `ffe9a10` there; removed stale `MultiGuard 2.app`.
+- Updated `multiguard-setup.md`.
