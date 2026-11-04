@@ -243,23 +243,28 @@ actor TunnelManager {
         return directory.appendingPathComponent(tunnel.fileURL.deletingPathExtension().lastPathComponent + ".log")
     }
 
+    /// The interface wg-quick just created for `config`. Matched by interface address, which is
+    /// world-readable; `wg show <iface>` needs root, so peer keys can't be relied on. Guessing
+    /// (e.g. the last interface) would record the wrong utun when several tunnels are up, and the
+    /// app would later treat the tunnel as dropped when that other interface goes away.
     private func discoverInterface(for config: WireGuardConfig, wgPath: String) async throws -> String {
         let output = try await ShellRunner.run(wgPath, arguments: ["show", "interfaces"])
         let interfaces = output
             .components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
+        let configured = Set(config.interface.addresses.map { $0.split(separator: "/").first.map(String.init) ?? $0 })
 
         for interface in interfaces {
-            let dump = try? await ShellRunner.run(wgPath, arguments: ["show", interface])
-            guard let dump = dump else { continue }
-
-            for peer in config.peers {
-                if dump.contains(peer.publicKey) {
-                    return interface
-                }
+            if let ifconfig = try? await ShellRunner.run("/sbin/ifconfig", arguments: [interface]),
+               !configured.isDisjoint(with: Self.parseAddresses(fromIfconfig: ifconfig)) {
+                return interface
+            }
+            // Readable only when the control socket is (privileged helper or root).
+            if let dump = try? await ShellRunner.run(wgPath, arguments: ["show", interface]),
+               config.peers.contains(where: { dump.contains($0.publicKey) }) {
+                return interface
             }
         }
-
-        return interfaces.last ?? "unknown"
+        throw ShellError.failed("Could not determine which interface the tunnel is using")
     }
 }

@@ -37,3 +37,9 @@ Each tunnel is now bootstrapped as `com.multiguard.tunnel.<name>` with `AbandonP
 ## Reconcile UI state with the system
 
 The 2s refresh compares tunnels against `wg show interfaces`. A tunnel marked connected whose interface vanished is reconnected once (single admin prompt, after the default route returns); a tunnel marked disconnected or failed whose interface is up is adopted as connected. The system, not the last command's result, is the source of truth.
+
+## Identify a tunnel's interface by address, not by guessing
+
+After `wg-quick up`, the app finds the new `utun` by matching the config's `Address` entries against `ifconfig <iface>` output, which is world-readable. The peer-key check via `wg show <iface>` remains only as a fallback, since it needs read access to the control socket (root or the privileged helper). If nothing matches, the connect fails with an explicit error.
+
+**Rejected:** peer public key matching alone (`wg show <iface>` fails for an unprivileged user, so the check never matched); falling back to the last listed interface (with several tunnels up it recorded another tunnel's `utun`, and the reconcile loop then treated this tunnel as dropped when that other interface went away).

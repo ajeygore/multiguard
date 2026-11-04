@@ -4,6 +4,7 @@ enum ShellError: Error, LocalizedError {
     case nonZeroExit(code: Int, stderr: String)
     case cancelled
     case executableNotFound(String)
+    case failed(String)
 
     var errorDescription: String? {
         switch self {
@@ -11,6 +12,8 @@ enum ShellError: Error, LocalizedError {
             return "Command failed with code \(code): \(stderr.trimmingCharacters(in: .whitespacesAndNewlines))"
         case .cancelled:
             return "Cancelled by user."
+        case .failed(let message):
+            return message
         case .executableNotFound(let name):
             return "Executable not found: \(name). Make sure wireguard-tools is installed (`brew install wireguard-tools`)."
         }

@@ -23,3 +23,7 @@ This is an append-only log of modifications, updates, and indexing runs performe
 - Fix: exit status passed through a file written by an `sh` wrapper; refresh loop adopts running tunnels shown as failed/disconnected.
 - Also landed: per-tunnel launchd jobs (survive authtrampoline idle-exit), XPC error handlers (no hung continuations), single-prompt auto-reconnect after drop/wake, wait for utun removal on disconnect, per-tunnel logs.
 - Updated `multiguard-decisions.md`.
+
+## [2026-11-04] fix | Match a new tunnel's utun by interface address
+- `TunnelManager.discoverInterface` matches config addresses against `ifconfig`; peer-key match kept as privileged fallback; no more `interfaces.last` guess. Added `ShellError.failed`.
+- Updated `multiguard-decisions.md`.
